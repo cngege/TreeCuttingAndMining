@@ -4,6 +4,7 @@
 #include <MC/Level.hpp>
 #include <MC/BlockInstance.hpp>
 #include <MC/Block.hpp>
+#include <MC/BlockLegacy.hpp>
 #include <MC/BlockSource.hpp>
 #include <MC/Actor.hpp>
 #include <MC/Player.hpp>
@@ -22,15 +23,19 @@ Logger logger(PLUGIN_NAME);
 using DestroyBlockCALLType = void(__fastcall*)(Block* thi, Player* player, BlockPos* Bpos);
 DestroyBlockCALLType OBlock_PlayerDestroy;
 
-void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos);
-void CheckMinerals(Block* block, Player* player, BlockPos* Bpos,std::string name, std::string compatible);
+void Block_PlayerDestroy(Block*, Player*, BlockPos*);
+void CheckMinerals(Block*, Player*, BlockPos*, std::string, std::string);
+bool CheckLeaves(json, BlockPos, int);
+unsigned short Block_getTileData(Block*);
+bool CheckUshortArray(json, unsigned short);
+void TreeCutting(json, Block*, Player*, BlockPos*);
 
 string configpath = "./plugins/TreeCuttingAndMining/";
 auto config = R"(
     {
         "Time_Accrual": true,
         "Sneak": true,
-        "digging": [
+        "Digging": [
             "minecraft:iron_ore",
             "minecraft:gold_ore",
             "minecraft:diamond_ore",
@@ -49,6 +54,57 @@ auto config = R"(
             "minecraft:deepslate_emerald_ore",
             "minecraft:deepslate_coal_ore",
             "minecraft:deepslate_copper_ore"
+         ],
+        "Tree": [
+            {
+                "Chopped_Wood_type":"minecraft:log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,4,8],
+                "Check_Leaves_type":"minecraft:leaves",
+                "Check_Leaves_Auxs":[4]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:log",
+                "Chopped_Wood_Aux": 2,
+                "Covered_Wood_Auxs":[2,6,10],
+                "Check_Leaves_type":"minecraft:leaves",
+                "Check_Leaves_Auxs":[6]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:log",
+                "Chopped_Wood_Aux": 3,
+                "Covered_Wood_Auxs":[3,7,11],
+                "Check_Leaves_type":"minecraft:leaves",
+                "Check_Leaves_Auxs":[3,7]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:log",
+                "Chopped_Wood_Aux": 1,
+                "Covered_Wood_Auxs":[1,5,9],
+                "Check_Leaves_type":"minecraft:leaves",
+                "Check_Leaves_Auxs":[5]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:log2",
+                "Chopped_Wood_Aux": 1,
+                "Covered_Wood_Auxs":[1,5,9],
+                "Check_Leaves_type":"minecraft:leaves2",
+                "Check_Leaves_Auxs":[1]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:log2",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,4,8],
+                "Check_Leaves_type":"minecraft:leaves2",
+                "Check_Leaves_Auxs":[0]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,4,8],
+                "Check_Leaves_type":"minecraft:azalea_leaves",
+                "Check_Leaves_Auxs":[0]
+            }
          ]
     }
 )"_json;
@@ -74,7 +130,7 @@ void PluginInit()
 #if PLUGIN_VERSION_STATUS == PLUGIN_VERSION_BETA
     logger.info("当前为 BETA 版本,更多功能正在开发中,请关注最新版发布，感谢支持");
 #elif PLUGIN_VERSION_STATUS == PLUGIN_VERSION_DEV
-    logger.info("当前为 DEV 版本, 为开发者进行调试之版本，请更换为BETA或RELEASE版");
+    logger.warn("当前为 DEV 该版本的第{}个调试版本, 为开发者进行调试之版本，请更换为BETA或RELEASE版", PLUGIN_VERSION_BUILD);
 #endif
 
     //读写配置文件
@@ -109,46 +165,42 @@ void PluginInit()
     }
 }
 
-/* 普通橡树树叶 原木
-22:10:10 INFO [TreeCuttingAndMining] 方块:minecraft:leaves
-22:10:10 INFO [TreeCuttingAndMining] 方块id:18
-22:10:10 INFO [TreeCuttingAndMining] 方块特殊值:0,4 【2:白桦树叶】
-
-22:11:16 INFO [TreeCuttingAndMining] 方块:minecraft:log
-22:11:16 INFO [TreeCuttingAndMining] 方块id:17
-22:11:16 INFO [TreeCuttingAndMining] 方块特殊值:【0，4，8】【2，6，10：白桦树原木】
-*/
-
-bool CheckLeaves(BlockPos Bpos);
-
 void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos){
     std::string name = thi->getTypeName();
-    unsigned short aux = thi->getTileData();
+    //unsigned short aux = Block_getTileData(thi);
 
 #if PLUGIN_VERSION_STATUS == PLUGIN_VERSION_DEV
+    unsigned short _aux = Block_getTileData(thi);
     //如果是调试模式
     //向控制台输出 玩家破坏的方块信息
     logger.info("方块:{}", thi->getTypeName());
     logger.info("方块id:{}", thi->getId());
-    logger.info("方块特殊值:{}", thi->getTileData());
-    //getDestroySpeed()
+    logger.info("方块特殊值:{}", _aux);
     logger.info("破坏速度:{}", thi->getDestroySpeed());
     logger.info("POS-X:{},Y:{},Z:{}", Bpos->x,Bpos->y,Bpos->z);
 #endif
 
     if (config["Sneak"] == true && !player->isSneaking())
     {
-        
         return OBlock_PlayerDestroy(thi, player, Bpos);
     }
 
-    if (name == "minecraft:leaves" && (aux == 0 || aux == 4)) {
-        //检测 树叶 判断是否是生长的树
-        
+    //砍树
+    for (auto& tree : config["Tree"]) {
+        //判断砍的是不是配置文件中指定的木头
+        if (tree["Chopped_Wood_type"] == name) {
+            unsigned short aux = Block_getTileData(thi);
+            // 检查 砍的是一颗配置文件中 规定的树
+            if (tree["Chopped_Wood_Aux"] == aux) {
+                if (CheckLeaves(tree, *Bpos, player->getDimensionId())) {
+                    return TreeCutting(tree,thi,player,Bpos);
+                }
+            }
+        }
     }
 
     // 检查矿物
-    for (auto& name : config["digging"]) {
+    for (auto& name : config["Digging"]) {
         if (name == thi->getTypeName()) {
             if (name == "minecraft:lit_redstone_ore") {
                 return CheckMinerals(thi, player, Bpos, name,"minecraft:redstone_ore");
@@ -166,30 +218,72 @@ void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos){
     return OBlock_PlayerDestroy(thi, player, Bpos);
 }
 
-bool CheckLeaves(BlockPos Bpos, int dimid, std::string Cutname,std::string Leaves, int Leavesdata) {
-    if (Bpos.y > 256) return false;
+bool CheckUshortArray(json arr, unsigned short val) {
+    if (!arr.is_array()) return false;
+    for (int i = 0; i < arr.size(); i++) {
+        if (arr[i] == val) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 破坏的方块名称特殊值， 位置 维度
+bool CheckLeaves(json tree,BlockPos Bpos, int dimid) {
+    if (Bpos.y > 320) return false;     //建筑高度 320个方块
 
     for (int x = -1; x <= 1; x++) {
         for (int z = -1; z <= 1; z++) {
             auto nBpos = BlockPos(Bpos.x + x, Bpos.y + 1, Bpos.z + z);
             auto block = Level::getBlock(nBpos, dimid);
-            if (block->getTypeName() == Leaves && block->getTileData() == Leavesdata) {
-                return true;
+            auto blockname = block->getTypeName();
+            if (blockname == tree["Chopped_Wood_type"]) {
+                auto data = Block_getTileData(block);
+                if (CheckUshortArray(tree["Covered_Wood_Auxs"], data)) {        //如果向上检查的木头是匹配的
+                    return CheckLeaves(tree,BlockPos(Bpos.x, Bpos.y + 1, Bpos.z), dimid);
+                }
             }
-            else if (block->getTypeName() == Cutname) {
-                return CheckLeaves(BlockPos(Bpos.x + x, Bpos.y + 1, Bpos.z + z));
+            if (blockname == tree["Check_Leaves_type"]) {
+                auto data = Block_getTileData(block);
+                if (CheckUshortArray(tree["Check_Leaves_Auxs"], data)) {        //如果向上检查的树叶是匹配的
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+
+//正式砍树
+void TreeCutting(json tree, Block* block, Player* player, BlockPos* Bpos) {
+    if (Bpos->y > 320) return;
+    OBlock_PlayerDestroy(block, player, Bpos);
+    Level::setBlock(*Bpos, player->getDimensionId(), "minecraft:air", 0);
+
+    for (int y = 0; y <= 1;y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            for (int z = -1; z <= 1; z++)
+            {
+                BlockPos* nBpos = new BlockPos(Bpos->x + x, Bpos->y + y, Bpos->z + z);
+                Block* nblock = Level::getBlock(nBpos, player->getDimensionId());
+
+                if (nblock->getTypeName() == tree["Chopped_Wood_type"])
+                {
+                    if (CheckUshortArray(tree["Covered_Wood_Auxs"], Block_getTileData(nblock))) {
+                        TreeCutting(tree, nblock, player, nBpos);
+                        delete nBpos;
+                    }
+                }
             }
         }
     }
 
-    return false;
 }
 
-void TreeCutting() {
-
-}
-
-void CheckMinerals(Block* block ,Player* player, BlockPos* Bpos,std::string Bname,std::string compatible = "") {
+void CheckMinerals(Block* block ,Player* player, BlockPos* Bpos,std::string Bname,std::string compatible) {
     OBlock_PlayerDestroy(block, player, Bpos);
     Level::setBlock(*Bpos, player->getDimensionId(), "minecraft:air", 0);
     for (int y = -1; y <= 1; y++)
@@ -209,4 +303,35 @@ void CheckMinerals(Block* block ,Player* player, BlockPos* Bpos,std::string Bnam
             }
         }
     }
+}
+/*
+#include "MC/Item.hpp"
+
+THook(bool, "?dispense@Item@@UEBA_NAEAVBlockSource@@AEAVContainer@@HAEBVVec3@@E@Z", Item* thi, BlockSource* a2, Container* a3, int a4, Vec3* a5, unsigned char a6)
+{
+    logger.info("发射物品:{}", thi->getFullItemName());
+    logger.info("位置:{}", a5->toBlockPos().toString());
+    //auto ret = original(thi, a2, a3, a4, a5, a6);
+    //logger.info("返回:{}", ret);
+    //return ret;
+    return true;
+}
+*/
+
+unsigned short Block_getTileData(Block* block) {
+    // 等待大佬改进
+    auto tileData = dAccess<unsigned short, 8>(block);
+    auto blk = &block->getLegacyBlock();
+
+    if (((BlockLegacy*)blk)->toBlock(tileData) == (Block*)block)
+        return tileData;
+
+    for (unsigned short i = 0; i < 16; ++i) {
+        if (i == tileData)
+            continue;
+        if (((BlockLegacy*)blk)->toBlock(i) == (Block*)block)
+            return i;
+    }
+    //logger.error("Error in GetTileData");
+    return 0;
 }
