@@ -231,6 +231,7 @@ bool CheckUshortArray(json arr, unsigned short val) {
 // 破坏的方块名称特殊值， 位置 维度
 bool CheckLeaves(json tree,BlockPos Bpos, int dimid) {
     if (Bpos.y > 320) return false;     //建筑高度 320个方块
+    bool CheckLeavesValue = false;
 
     for (int x = -1; x <= 1; x++) {
         for (int z = -1; z <= 1; z++) {
@@ -240,7 +241,9 @@ bool CheckLeaves(json tree,BlockPos Bpos, int dimid) {
             if (blockname == tree["Chopped_Wood_type"]) {
                 auto data = Block_getTileData(block);
                 if (CheckUshortArray(tree["Covered_Wood_Auxs"], data)) {        //如果向上检查的木头是匹配的
-                    return CheckLeaves(tree,BlockPos(Bpos.x, Bpos.y + 1, Bpos.z), dimid);
+                    if (CheckLeaves(tree, BlockPos(Bpos.x, Bpos.y + 1, Bpos.z), dimid)) {
+                        return true;
+                    }
                 }
             }
             if (blockname == tree["Check_Leaves_type"]) {
