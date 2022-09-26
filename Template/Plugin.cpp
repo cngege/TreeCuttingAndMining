@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+
 #include <EventAPI.h>
 #include <LoggerAPI.h>
 #include <MC/Level.hpp>
@@ -12,11 +13,13 @@
 #include "Version.h"
 #include <LLAPI.h>
 #include <ServerAPI.h>
-#include <MC/Json.hpp>
+//#include <MC/Json.hpp>
 #include <direct.h>
 #include "../minhook/MinHook.h"
+using namespace nlohmann;
 
 #pragma comment(lib, "../minhook/MinHook.x64.lib")
+
 
 Logger logger(PLUGIN_NAME);
 
