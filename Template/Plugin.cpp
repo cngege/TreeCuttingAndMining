@@ -126,10 +126,12 @@ inline void CheckProtocolVersion() {
 #endif // TARGET_BDS_PROTOCOL_VERSION
 }
 
+void AutoUprade(const std::string minebbs_resid);
+
 void PluginInit()
 {
     CheckProtocolVersion();
-
+    AutoUprade("4502");
 #if PLUGIN_VERSION_STATUS == PLUGIN_VERSION_BETA
     logger.info("当前为 BETA 版本,更多功能正在开发中,请关注最新版发布，感谢支持");
 #elif PLUGIN_VERSION_STATUS == PLUGIN_VERSION_DEV

@@ -38,6 +38,9 @@
     <ClCompile Include="Plugin.cpp">
       <Filter>Source</Filter>
     </ClCompile>
+    <ClCompile Include="AutoUprade.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Resource.rc">
