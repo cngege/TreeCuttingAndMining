@@ -60,59 +60,97 @@ auto config = R"(
          ],
         "Tree": [
             {
-                "Chopped_Wood_type":"minecraft:log",
+                "Chopped_Wood_type":"minecraft:oak_log",
                 "Chopped_Wood_Aux": 0,
                 "Covered_Wood_Auxs":[0,4,8],
                 "Check_Leaves_type":"minecraft:leaves",
                 "Check_Leaves_Auxs":[4]
             },
             {
-                "Chopped_Wood_type":"minecraft:log",
-                "Chopped_Wood_Aux": 2,
-                "Covered_Wood_Auxs":[2,6,10],
+                "Chopped_Wood_type":"minecraft:birch_log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,2,6,10],
                 "Check_Leaves_type":"minecraft:leaves",
-                "Check_Leaves_Auxs":[6]
+                "Check_Leaves_Auxs":[2,6]
             },
             {
-                "Chopped_Wood_type":"minecraft:log",
-                "Chopped_Wood_Aux": 3,
-                "Covered_Wood_Auxs":[3,7,11],
+                "Chopped_Wood_type":"minecraft:jungle_log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,3,7,11],
                 "Check_Leaves_type":"minecraft:leaves",
                 "Check_Leaves_Auxs":[3,7]
             },
             {
-                "Chopped_Wood_type":"minecraft:log",
-                "Chopped_Wood_Aux": 1,
-                "Covered_Wood_Auxs":[1,5,9],
-                "Check_Leaves_type":"minecraft:leaves",
-                "Check_Leaves_Auxs":[5]
-            },
-            {
-                "Chopped_Wood_type":"minecraft:log2",
-                "Chopped_Wood_Aux": 1,
-                "Covered_Wood_Auxs":[1,5,9],
+                "Chopped_Wood_type":"minecraft:jungle_log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,3,7,11],
                 "Check_Leaves_type":"minecraft:leaves2",
-                "Check_Leaves_Auxs":[1]
+                "Check_Leaves_Auxs":[4]
             },
             {
-                "Chopped_Wood_type":"minecraft:log2",
+                "Chopped_Wood_type":"minecraft:spruce_log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,1,5,9],
+                "Check_Leaves_type":"minecraft:leaves",
+                "Check_Leaves_Auxs":[1,5]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:dark_oak_log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,1,5,9],
+                "Check_Leaves_type":"minecraft:leaves2",
+                "Check_Leaves_Auxs":[1,5]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:acacia_log",
                 "Chopped_Wood_Aux": 0,
                 "Covered_Wood_Auxs":[0,4,8],
                 "Check_Leaves_type":"minecraft:leaves2",
-                "Check_Leaves_Auxs":[0]
+                "Check_Leaves_Auxs":[0,4]
             },
             {
-                "Chopped_Wood_type":"minecraft:log",
+                "Chopped_Wood_type":"minecraft:oak_log",
                 "Chopped_Wood_Aux": 0,
                 "Covered_Wood_Auxs":[0,4,8],
                 "Check_Leaves_type":"minecraft:azalea_leaves",
+                "Check_Leaves_Auxs":[0]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:cherry_log",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,4,8],
+                "Check_Leaves_type":"minecraft:cherry_leaves",
+                "Check_Leaves_Auxs":[0]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:crimson_stem",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,4,8],
+                "Check_Leaves_type":"minecraft:nether_wart_block",
+                "Check_Leaves_Auxs":[0]
+            },
+            {
+                "Chopped_Wood_type":"minecraft:warped_stem",
+                "Chopped_Wood_Aux": 0,
+                "Covered_Wood_Auxs":[0,4,8],
+                "Check_Leaves_type":"minecraft:warped_wart_block",
                 "Check_Leaves_Auxs":[0]
             }
          ]
     }
 )"_json;
 
-
+// 橡树原木 ok
+// 白桦木  // 2 6
+// 丛林木  // 3 7 树叶1
+// 丛林木  // 4 树叶2
+// 云杉原木 // 1 5
+// 深色橡木 // 1 5
+// 合金欢木 ok
+// 牡丹花木 ok
+// 樱花木 ok
+// 绯红菌树 ok
+// 诡异菌树 ok
 
 inline void CheckProtocolVersion() {
 #ifdef TARGET_BDS_PROTOCOL_VERSION
@@ -226,6 +264,7 @@ void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos){
 bool CheckUshortArray(json arr, unsigned short val) {
     if (!arr.is_array()) return false;
     for (int i = 0; i < arr.size(); i++) {
+        //logger.debug("i:{},arr[i]:{},val:{}", i, arr[i], val);
         if (arr[i] == val) {
             return true;
         }
@@ -246,7 +285,8 @@ bool CheckLeaves(json tree,BlockPos Bpos, int dimid) {
             if (blockname == tree["Chopped_Wood_type"]) {
                 auto data = Block_getTileData(block);
                 if (CheckUshortArray(tree["Covered_Wood_Auxs"], data)) {        //如果向上检查的木头是匹配的
-                    if (CheckLeaves(tree, BlockPos(Bpos.x, Bpos.y + 1, Bpos.z), dimid)) {
+                    //if (CheckLeaves(tree, BlockPos(Bpos.x, Bpos.y + 1, Bpos.z), dimid)) {
+                    if (CheckLeaves(tree, BlockPos(nBpos), dimid)) {
                         return true;
                     }
                 }
@@ -306,8 +346,8 @@ void CheckMinerals(Block* block ,Player* player, BlockPos* Bpos,std::string Bnam
                 if (nblock->getTypeName() == Bname || (compatible != "" && nblock->getTypeName() == compatible) && !player->getSelectedItem().isNull())
                 {
                     CheckMinerals(nblock, player, nBpos, Bname, compatible);
-                    delete nBpos;
                 }
+                delete nBpos;
             }
         }
     }
@@ -327,6 +367,7 @@ THook(bool, "?dispense@Item@@UEBA_NAEAVBlockSource@@AEAVContainer@@HAEBVVec3@@E@
 */
 
 unsigned short Block_getTileData(Block* block) {
+    //return block->getTileData();
     // 等待大佬改进
     auto tileData = dAccess<unsigned short, 8>(block);
     auto blk = &block->getLegacyBlock();
