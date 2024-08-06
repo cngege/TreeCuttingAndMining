@@ -20,6 +20,9 @@ using namespace nlohmann;
 
 #pragma comment(lib, "../minhook/MinHook.x64.lib")
 
+std::unordered_map<Player*, ItemStack*> playerMap;
+
+static bool RetTrigger = false;
 
 Logger logger(PLUGIN_NAME);
 
@@ -27,11 +30,11 @@ using DestroyBlockCALLType = void(__fastcall*)(Block* thi, Player* player, Block
 DestroyBlockCALLType OBlock_PlayerDestroy;
 
 void Block_PlayerDestroy(Block*, Player*, BlockPos*);
-void CheckMinerals(Block*, Player*, BlockPos*, std::string, std::string);
+void CheckMinerals(Block*, Player*, BlockPos*, std::string, std::string,bool);
 bool CheckLeaves(json, BlockPos, int);
 unsigned short Block_getTileData(Block*);
 bool CheckUshortArray(json, unsigned short);
-void TreeCutting(json, Block*, Player*, BlockPos*);
+void TreeCutting(json, Block*, Player*, BlockPos*,bool);
 
 string configpath = "./plugins/TreeCuttingAndMining/";
 auto config = R"(
@@ -206,6 +209,7 @@ void PluginInit()
     if (status != MH_OK) {
         logger.error("MinHook Error,status:{}", status);
     }
+
 }
 
 void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos){
@@ -222,10 +226,10 @@ void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos){
     logger.info("破坏速度:{}", thi->getDestroySpeed());
     logger.info("POS-X:{},Y:{},Z:{}", Bpos->x,Bpos->y,Bpos->z);
 #endif
-
+    OBlock_PlayerDestroy(thi, player, Bpos);
     if (config["Sneak"] == true && !player->isSneaking())
     {
-        return OBlock_PlayerDestroy(thi, player, Bpos);
+        return;
     }
 
     //砍树
@@ -236,7 +240,9 @@ void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos){
             // 检查 砍的是一颗配置文件中 规定的树
             if (tree["Chopped_Wood_Aux"] == aux) {
                 if (CheckLeaves(tree, *Bpos, player->getDimensionId())) {
-                    return TreeCutting(tree,thi,player,Bpos);
+                    RetTrigger = true;
+                    TreeCutting(tree,thi,player,Bpos,true);
+                    break;
                 }
             }
         }
@@ -246,20 +252,60 @@ void Block_PlayerDestroy(Block* thi, Player* player, BlockPos* Bpos){
     for (auto& name : config["Digging"]) {
         if (name == thi->getTypeName()) {
             if (name == "minecraft:lit_redstone_ore") {
-                return CheckMinerals(thi, player, Bpos, name,"minecraft:redstone_ore");
+                //RetTrigger = true;
+                CheckMinerals(thi, player, Bpos, name,"minecraft:redstone_ore",true);
+                break;
             }
             else if (name == "minecraft:lit_deepslate_redstone_ore") {
-                return CheckMinerals(thi, player, Bpos, name, "minecraft:deepslate_redstone_ore");
+                //RetTrigger = true;
+                CheckMinerals(thi, player, Bpos, name, "minecraft:deepslate_redstone_ore",true);
+                break;
             }
             else {
-                return CheckMinerals(thi, player, Bpos, name, "");
+                
+                CheckMinerals(thi, player, Bpos, name, "",true);
+                break;
             }
 
         }
-        
     }
-    return OBlock_PlayerDestroy(thi, player, Bpos);
+    if (RetTrigger){
+        RetTrigger = false;
+        playerMap[player] = player->getHandSlot();
+    }
 }
+
+
+// 这个是 Block_PlayerDestroy 的调用者
+THook(void*, "<lambda_8f42c031e5eb7245475425b96fd66358>::operator()", uintptr_t* a1, ItemStack& item) {
+    Player* p = *reinterpret_cast<Player**>(*a1 + 8);
+    void* ret = original(a1, item);
+    
+    // 这个 +160的偏移， 没有找到定义, 但是近几个版本改偏移没变,如果后续有必要确定该偏移
+    // 则搜索 Block::playerDestroy 的调用处往下找 
+    //if (v32)
+    //{
+    //    ItemStack::operator=(a2, (struct ItemStackBase*)v30);
+    //}
+    //else
+    //{
+    //    ItemStack::ItemStack(a2, (const struct ItemStack*)v30);
+    //    *((_BYTE*)a2 + 160) = 1;
+    //}
+    // 就可以确定改偏移，如果后续改动频繁 则考虑特征码
+    if (playerMap.find(p) != playerMap.end()) {
+        if (*((BYTE*)&item + 160)) {
+            item = *playerMap[p];
+        }
+        else {// 这里应该表示 item被析构掉了
+            SymCall("??0ItemStack@@QEAA@AEBV0@@Z", ItemStack&, ItemStack&, ItemStack&)(item, *playerMap[p]);
+            *((BYTE*)&item + 160) = 1;
+        }
+        playerMap.erase(p);
+    }
+    return ret;
+}
+
 
 bool CheckUshortArray(json arr, unsigned short val) {
     if (!arr.is_array()) return false;
@@ -301,12 +347,20 @@ bool CheckLeaves(json tree,BlockPos Bpos, int dimid) {
     }
     return false;
 }
-
-
+//#include <mc/Item.hpp>
 //正式砍树
-void TreeCutting(json tree, Block* block, Player* player, BlockPos* Bpos) {
+void TreeCutting(json tree, Block* block, Player* player, BlockPos* Bpos, bool isBaseBlock) {
     if (Bpos->y > 320) return;
-    OBlock_PlayerDestroy(block, player, Bpos);
+    if (!isBaseBlock) {
+        ItemStack* item = player->getHandSlot();
+        if (!item || item->isNull()) return;
+        item->mineBlock(*block, Bpos->x, Bpos->y, Bpos->z, player);
+        player->setSelectedItem(*item);
+        //player->updateInventoryTransactions();
+        OBlock_PlayerDestroy(block, player, Bpos);
+        RetTrigger = true;
+    }
+
     Level::setBlock(*Bpos, player->getDimensionId(), "minecraft:air", 0);
 
     for (int y = 0; y <= 1;y++)
@@ -321,18 +375,28 @@ void TreeCutting(json tree, Block* block, Player* player, BlockPos* Bpos) {
                 if (nblock->getTypeName() == tree["Chopped_Wood_type"])
                 {
                     if (CheckUshortArray(tree["Covered_Wood_Auxs"], Block_getTileData(nblock))) {
-                        TreeCutting(tree, nblock, player, nBpos);
-                        delete nBpos;
+                        TreeCutting(tree, nblock, player, nBpos, false);
                     }
                 }
+                delete nBpos;
             }
         }
     }
 
 }
 
-void CheckMinerals(Block* block ,Player* player, BlockPos* Bpos,std::string Bname,std::string compatible) {
-    OBlock_PlayerDestroy(block, player, Bpos);
+void CheckMinerals(Block* block ,Player* player, BlockPos* Bpos,std::string Bname,std::string compatible, bool isBaseBlock) {
+
+    if (!isBaseBlock) {
+        ItemStack* item = player->getHandSlot();
+        if (!item || item->isNull()) return;
+        item->mineBlock(*block, Bpos->x, Bpos->y, Bpos->z, player);
+        player->setSelectedItem(*item);
+        //player->updateInventoryTransactions();
+        OBlock_PlayerDestroy(block, player, Bpos);
+        RetTrigger = true;
+    }
+
     Level::setBlock(*Bpos, player->getDimensionId(), "minecraft:air", 0);
     for (int y = -1; y <= 1; y++)
     {
@@ -345,7 +409,7 @@ void CheckMinerals(Block* block ,Player* player, BlockPos* Bpos,std::string Bnam
                 
                 if (nblock->getTypeName() == Bname || (compatible != "" && nblock->getTypeName() == compatible) && !player->getSelectedItem().isNull())
                 {
-                    CheckMinerals(nblock, player, nBpos, Bname, compatible);
+                    CheckMinerals(nblock, player, nBpos, Bname, compatible,false);
                 }
                 delete nBpos;
             }
